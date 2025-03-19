@@ -1,0 +1,6 @@
+mediapipe~=0.10.21
+numpy~=1.26.4
+matplotlib~=3.10.1
+scipy~=1.15.2
+scikit-learn~=1.6.1
+pyefd~=1.6.0
