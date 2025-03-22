@@ -240,8 +240,6 @@ def main():
     x_train = scaler.fit_transform(x_train)
     intra, inter = calculate_intra_and_inter_distances(y_train, x_train)
 
-    plot_histograms(intra, inter)
-
     y_true, y_pred, y_scores = [], [], []
     correct_counter = 0
     for file, true_match in TRUE_MATCHES.items():
@@ -259,3 +257,5 @@ def main():
 
     print(f"Correct Classification Rate: {CCR:.2f}%")
     print(f"Equal Error Rate: {EER:.2f}%")
+
+    plot_histograms(intra, inter)
