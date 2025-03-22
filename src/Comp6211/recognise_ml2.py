@@ -53,6 +53,14 @@ def classify(image_path: str, model: SVC, scaler: StandardScaler) -> str:
     return model.predict(features)[0]
 
 
+def score(image_path: str, model: SVC, scaler: StandardScaler) -> float:
+    image = cv2.imread(image_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    features = extract_body_shape_features(image)
+    features = scaler.transform([features])
+    return model.predict_proba(features)[0][1]
+
+
 def calc_dist(a, b) -> float | np.floating:
     return abs(distance.euclidean(a, b))
 
@@ -193,6 +201,12 @@ def plot_histograms(intra: np.ndarray, inter: np.ndarray) -> None:
     plt.show()
 
 
+def calculate_eer(fpr: np.ndarray, tpr: np.ndarray) -> np.ndarray:
+    fnr = 1 - tpr
+    eer = fpr[np.nanargmin(np.absolute(fnr - fpr))]
+    return eer
+
+
 def main():
 
     TRUE_MATCHES = {
@@ -228,10 +242,20 @@ def main():
 
     plot_histograms(intra, inter)
 
+    y_true, y_pred, y_scores = [], [], []
     correct_counter = 0
     for file, true_match in TRUE_MATCHES.items():
         predicted_match = classify(f"./res/biometrics/test/{file}", svm_model, scaler)
         correct_counter += (correct := predicted_match == true_match)
         print(f"[{file} | Predicted: {predicted_match}, True: {true_match}. Match? {correct}]")
 
-    print(f"CCR: {correct_counter / len(TRUE_MATCHES)}")
+        y_true.append(int(correct))
+        y_pred.append(predicted_match)
+        y_scores.append(score(f"./res/biometrics/test/{file}", svm_model, scaler))
+
+    CCR = correct_counter / len(TRUE_MATCHES) * 100
+    fpr, tpr, _ = metrics.roc_curve(y_true, y_scores, pos_label=1)
+    EER = calculate_eer(fpr, tpr) * 100
+
+    print(f"Correct Classification Rate: {CCR:.2f}%")
+    print(f"Equal Error Rate: {EER:.2f}%")
