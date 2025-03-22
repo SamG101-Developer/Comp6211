@@ -2,14 +2,16 @@ import os
 from collections import defaultdict
 
 import cv2
+from scipy.stats import norm
 import mediapipe as mp
 import numpy as np
 from matplotlib import pyplot as plt
+from pyefd import elliptic_fourier_descriptors
 from scipy.spatial import distance
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
-from pyefd import elliptic_fourier_descriptors
+from sklearn import metrics
 
 POSE = mp.solutions.pose.Pose(
     min_detection_confidence=0.0, min_tracking_confidence=0.0, static_image_mode=True, model_complexity=2)
@@ -31,7 +33,7 @@ def load_training_data(training_folder: str) -> tuple[np.ndarray, np.ndarray]:
 
 
 def train_model(x: np.ndarray, y: np.ndarray) -> SVC:
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=101)
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.01, random_state=101)
     scaler = StandardScaler()
 
     x_train = scaler.fit_transform(x_train)
@@ -39,6 +41,7 @@ def train_model(x: np.ndarray, y: np.ndarray) -> SVC:
 
     model = SVC(kernel="rbf", C=1.0, random_state=101, probability=True, max_iter=-1)
     model.fit(x_train, y_train)
+
     return model
 
 
@@ -50,9 +53,8 @@ def classify(image_path: str, model: SVC, scaler: StandardScaler) -> str:
     return model.predict(features)[0]
 
 
-# sokalsneath, minkowski, euclidian, chebyshev, canberra
 def calc_dist(a, b) -> float | np.floating:
-    return distance.euclidean(a, b)
+    return abs(distance.euclidean(a, b))
 
 
 def extract_body_shape_features(image: np.ndarray) -> np.ndarray:
@@ -137,7 +139,7 @@ def extract_body_shape_features(image: np.ndarray) -> np.ndarray:
     features.extend(hu_moments)
 
     # Elliptic Fourier Descriptors
-    coeffs = elliptic_fourier_descriptors(np.squeeze(head_contour), order=10, normalize=True)
+    coeffs = elliptic_fourier_descriptors(np.squeeze(head_contour), order=8, normalize=True)
     features.extend(coeffs.flatten()[3:])
 
     return np.array(features, dtype=np.float64)
@@ -161,9 +163,7 @@ def calculate_intra_and_inter_distances(subjects: np.ndarray, features: np.ndarr
     for i, (subject1, feature_group1) in enumerate(collapsed.items()):
         for j, (subject2, feature_group2) in enumerate(collapsed.items()):
             if i >= j: continue
-            ff1 = np.mean(feature_group1, axis=0)
-            ff2 = np.mean(feature_group2, axis=0)
-            d = calc_dist(ff1, ff2)
+            d = sum([calc_dist(feature_group1[i], feature_group2[i]) for i in range(len(feature_group1))])
             inter_distances.append(d)
 
     # Convert to numpy arrays
@@ -173,13 +173,22 @@ def calculate_intra_and_inter_distances(subjects: np.ndarray, features: np.ndarr
 
 
 def plot_histograms(intra: np.ndarray, inter: np.ndarray) -> None:
+    bins = 60
     plt.figure(figsize=(10, 10))
-    plt.hist(intra.tolist(), bins=50, alpha=0.5, color="b", label="Intra-class distances", density=True)
-    plt.hist(inter.tolist(), bins=50, alpha=0.5, color="r", label="Inter-class distances", density=True)
+
+    # Histograms
+    plt.hist(intra.tolist(), bins=bins, range=(5, 35), alpha=0.5, edgecolor="black", color="b", label="Intra-class distances", density=True, linewidth=1)
+    plt.hist(inter.tolist(), bins=bins, range=(5, 35), alpha=0.5, edgecolor="black", color="r", label="Inter-class distances", density=True, linewidth=1)
+
+    # Best fit curves
+    xmin, xmax = plt.xlim()
+    x = np.linspace(xmin, xmax, 100)
+    plt.plot(x, norm.pdf(x, *norm.fit(intra)), color="b", linewidth=2, label="Intra-class best fit curve")
+    plt.plot(x, norm.pdf(x, *norm.fit(inter)), color="r", linewidth=2, label="Inter-class best fit curve")
 
     plt.xlabel("Euclidean distance")
     plt.ylabel("Frequency density")
-    plt.title("Histogram of intra-class distances")
+    plt.title("Intra- & Inter-variance distances")
     plt.legend()
     plt.show()
 
@@ -215,8 +224,8 @@ def main():
     svm_model = train_model(x_train, y_train)
     scaler = StandardScaler()
     x_train = scaler.fit_transform(x_train)
-
     intra, inter = calculate_intra_and_inter_distances(y_train, x_train)
+
     plot_histograms(intra, inter)
 
     correct_counter = 0
